@@ -48,7 +48,6 @@ docker-compose up --build
 ### 2. Kiểm tra kết quả
 Sau khi log hiện `Application startup complete`, hãy truy cập:
 - **Tài liệu API tương tác**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **Link tìm kiếm mẫu**: [http://localhost:8000/search?q=canxi](http://localhost:8000/search?q=canxi)
 
 
 ### 🔄 Quy trình làm mới dữ liệu (Tùy chọn)
