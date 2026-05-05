@@ -1,4 +1,5 @@
 import time
+import concurrent.futures
 from collections import deque
 from urllib.parse import urlparse
 from base_strategy import DeepCrawlStrategy
@@ -12,44 +13,53 @@ class BFSDeepCrawlStrategy(DeepCrawlStrategy):
 
         product_map = {}  # url -> product
 
-        while queue and len(results) < max_pages:
-            url, depth = queue.popleft()
+        # Sử dụng ThreadPoolExecutor để tăng tốc độ lấy chi tiết sản phẩm
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            while queue and len(results) < max_pages:
+                url, depth = queue.popleft()
 
-            if url in visited or depth > max_depth:
-                continue
+                if url in visited or depth > max_depth:
+                    continue
 
-            visited.add(url)
+                visited.add(url)
 
-            content = fetcher.fetch(url)
-            if not content:
-                continue
+                content = fetcher.fetch(url)
+                if not content:
+                    continue
 
-            # -------------------------
-            # 1. LIST PAGE
-            # -------------------------
-            infos = self._extract_info(content, url)
+                # -------------------------
+                # 1. LIST PAGE
+                # -------------------------
+                infos = self._extract_info(content, url)
+                
+                new_infos = []
+                for p in infos:
+                    if p["url"] not in product_map and len(results) < max_pages:
+                        product_map[p["url"]] = p
+                        results.append(p)
+                        new_infos.append(p)
 
-            for p in infos:
-                product_map[p["url"]] = p
-                results.append(p)
+                # -------------------------
+                # 2. DETAIL PAGE (GET DESCRIPTION) - CONCURRENT
+                # -------------------------
+                if new_infos:
+                    def fetch_detail(p):
+                        time.sleep(0.5) 
+                        detail_html = fetcher.fetch(p["url"])
+                        if detail_html:
+                            desc = self._extract_description(detail_html)
+                            p["description"] = desc
+                        return p
 
-            # -------------------------
-            # 2. DETAIL PAGE (GET DESCRIPTION)
-            # -------------------------
-            for p in infos:
-                time.sleep(1) # Delay between product detail requests
-                detail_html = fetcher.fetch(p["url"])
-                if detail_html:
-                    desc = self._extract_description(detail_html)
-                    p["description"] = desc
+                    list(executor.map(fetch_detail, new_infos))
 
-            # -------------------------
-            # 3. CRAWL LINKS
-            # -------------------------
-            if depth < max_depth:
-                for link in self._extract_links(content, url):
-                    if link not in visited:
-                        if not same_domain_only or urlparse(link).netloc == initial_domain:
-                            queue.append((link, depth + 1))
+                # -------------------------
+                # 3. CRAWL LINKS
+                # -------------------------
+                if depth < max_depth:
+                    for link in self._extract_links(content, url):
+                        if link not in visited:
+                            if not same_domain_only or urlparse(link).netloc == initial_domain:
+                                queue.append((link, depth + 1))
 
         return results
