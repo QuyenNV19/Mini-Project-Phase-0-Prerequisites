@@ -1,5 +1,14 @@
 import json
 import os
+import re
+from transformers import pipeline
+
+print("Đang tải model tóm tắt... Vui lòng đợi.")
+try:
+    summarizer = pipeline("summarization", model="VietAI/vit5-base-vietnews-summarization")
+except Exception as e:
+    print(f"Không thể tải model transformers: {e}")
+    summarizer = None
 
 def load_data(file_path):
     """Loads raw JSON data from the specified file path."""
@@ -17,26 +26,38 @@ def load_data(file_path):
         print(f"An unexpected error occurred: {e}")
         return []
 
+def summarize_text(text):
+    """Tóm tắt văn bản sử dụng Transformers."""
+    if not summarizer or not text or len(text) < 100:
+        return text[:200] + "..." if text else ""
+    
+    try:
+        input_text = text[:1024]
+        summary = summarizer(input_text, max_length=150, min_length=30, do_sample=False)
+        return summary[0]['summary_text']
+    except Exception as e:
+        print(f"Lỗi khi tóm tắt: {e}")
+        return text[:200] + "..."
+
 def clean_product(product):
     """Cleans and validates individual product data."""
-    # Helper to safely convert to integer
     def to_int(val, default=0):
         try:
             return int(val) if val is not None else default
         except (ValueError, TypeError):
             return default
 
-    # Helper to safely convert to float
     def to_float(val, default=0.0):
         try:
             return float(val) if val is not None else default
         except (ValueError, TypeError):
             return default
 
-    # Helper to safely clean string
     def clean_str(val, default=""):
         return str(val).strip() if val is not None else default
 
+    desc = clean_str(product.get("description"))
+    
     cleaned = {
         "name": clean_str(product.get("name")),
         "url": product.get("url"),
@@ -44,24 +65,27 @@ def clean_product(product):
         "price": to_int(product.get("price")),
         "rating": to_float(product.get("rating")),
         "sold": to_int(product.get("sold")),
-        "comment": clean_str(product.get("description"))
+        "description": desc,
+        "comments": clean_str(product.get("comments")),
+        "summary": summarize_text(desc) # Thêm phần tóm tắt
     }
     
     return cleaned
 
 def transform_data(raw_data):
     """Transforms a list of raw products into cleaned products."""
-    print(f"Starting transformation of {len(raw_data)} products...")
-    processed_data = [clean_product(item) for item in raw_data]
-    print("Transformation complete.")
+    print(f"Bắt đầu xử lý và tóm tắt {len(raw_data)} sản phẩm...")
+    processed_data = []
+    for i, item in enumerate(raw_data):
+        print(f"Processing item {i+1}/{len(raw_data)}...")
+        processed_data.append(clean_product(item))
+    print("Xử lý hoàn tất.")
     return processed_data
 
 def save_data(data, output_path):
     """Saves the processed data to a JSON file."""
     try:
-        # Ensure target directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         print(f"Successfully saved {len(data)} items to {output_path}")
@@ -69,20 +93,15 @@ def save_data(data, output_path):
         print(f"Error saving data: {e}")
 
 if __name__ == "__main__":
-    # Define paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     input_file = os.path.join(base_dir, "data_raw.json")
     output_file = os.path.join(base_dir, "data_processed.json")
     
-    # Alternative output path if 'data' folder is required as per requirement 4
-    # data_dir_output = os.path.join(os.path.dirname(base_dir), "data", "data_processed.json")
-
-    print("--- DATA PROCESSING PIPELINE ---")
+    print("--- PIPELINE XỬ LÝ VÀ TÓM TẮT DỮ LIỆU ---")
     
-    # Execute Pipeline
     raw_products = load_data(input_file)
     if raw_products:
         processed_products = transform_data(raw_products)
         save_data(processed_products, output_file)
     else:
-        print("No data to process.")
+        print("Không có dữ liệu để xử lý.")

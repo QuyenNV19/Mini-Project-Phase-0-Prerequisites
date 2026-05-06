@@ -27,8 +27,7 @@ class SearchEngine:
                     "name": {
                         "query": query,
                         "operator": "and",
-                        "minimum_should_match": "100%",
-                        "fuzziness": 0
+                        "fuzziness": "AUTO"
                     }
                 }
             },
@@ -49,7 +48,8 @@ class SearchEngine:
                     "sold": source.get("sold"),
                     "url": source.get("url"),
                     "image_url": source.get("image_url"),
-                    "comment": source.get("comment")
+                    "description": source.get("summary") or (source.get("description")[:200] + "..."),
+                    "comments": source.get("comments")
                 })
             return results
             

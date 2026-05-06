@@ -48,6 +48,7 @@ if __name__ == "__main__":
             print(f"Giá        : {p.get('price')}")
             print(f"Rating     : {p.get('rating')}")
             print(f"Đã bán     : {p.get('sold')}")
-            print(f"Mô tả      : {p.get('description')[:200] if p.get('description') else None}")
+            print(f"Mô tả      : {p.get('description')[:5000] if p.get('description') else None}...")
+            print(f" Bình luận  : {p.get('comments')[:5000] if p.get('comments') else 'Không có bình luận'}...")
     else:
         print("Không tìm thấy sản phẩm nào hoặc có lỗi xảy ra.")

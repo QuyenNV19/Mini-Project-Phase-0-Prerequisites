@@ -68,7 +68,8 @@ class DeepCrawlStrategy(ABC):
                     "price": price,
                     "rating": rating,
                     "sold": sold,
-                    "description": None  # sẽ fill ở bước detail
+                    "description": None,  # sẽ fill ở bước detail
+                    "comments": None     # sẽ fill ở bước detail
                 })
 
             except Exception:
@@ -76,19 +77,68 @@ class DeepCrawlStrategy(ABC):
 
         return products
 
-    def _extract_description(self, html_content):
+    def _extract_details(self, html_content):
+        """Trích xuất cả mô tả và bình luận trong một lần parse HTML"""
         soup = BeautifulSoup(html_content, "html.parser")
+        description = None
+        comments = None
 
-        selectors = [
-            "div.product-description",
-            "#description",
-            ".product-content",
-            ".content"
-        ]
+        # --- 1. TRÍCH XUẤT MÔ TẢ ---
+        main_content = soup.select_one("#content-product") or soup.select_one("#product-detail")
+        if main_content:
+            # Copy để không ảnh hưởng đến việc trích xuất comment sau này nếu chúng nằm trong main_content
+            import copy
+            content_copy = copy.copy(main_content)
+            for comment_box in content_copy.select(".list-comment, .comment-list, .content-comment"):
+                comment_box.decompose()
+            description = content_copy.get_text(separator="\n", strip=True)
+        else:
+            selectors = ["div.product-description", "#description", ".product-content", ".pr-content"]
+            for sel in selectors:
+                desc_tag = soup.select_one(sel)
+                if desc_tag:
+                    parent_id = desc_tag.find_parent(id=True)
+                    if parent_id and "comment" in parent_id.get("id", "").lower():
+                        continue
+                    description = desc_tag.get_text(separator="\n", strip=True)
+                    break
 
-        for sel in selectors:
-            desc = soup.select_one(sel)
-            if desc:
-                return desc.get_text(separator="\n", strip=True)
+        # --- 2. TRÍCH XUẤT BÌNH LUẬN (Lấy 3 cái đầu) ---
+        item_selectors = [".item-comment", ".review-item", ".comment-item", ".comment-box"]
+        comments_list = []
+        
+        # Thử tìm các item riêng lẻ trước
+        for sel in item_selectors:
+            items = soup.select(sel)
+            if items:
+                for item in items[:3]:  # Chỉ lấy 3 bình luận đầu tiên
+                    comments_list.append(item.get_text(separator=" ", strip=True))
+                break
+        
+        if comments_list:
+            comments = "\n---\n".join(comments_list)
+        else:
+            # Fallback: Nếu không tìm thấy item riêng lẻ, tìm container và lấy text
+            comment_selectors = [".list-comment", "#comment-list", ".review-list", ".customer-reviews", ".content-comment"]
+            for sel in comment_selectors:
+                comments_div = soup.select_one(sel)
+                if comments_div:
+                    # Nếu là container to, ta khó tách 3 cái nếu không có selector item. 
+                    # Tạm thời lấy text nhưng giới hạn độ dài hoặc hy vọng fallback dưới tốt hơn.
+                    comments = comments_div.get_text(separator="\n", strip=True)
+                    break
+        
+        if not comments:
+            content_divs = soup.select(".content")
+            comments_texts = []
+            for div in content_divs:
+                classes = div.get("class", [])
+                id_val = (div.get("id", "") or "").lower()
+                if any(k in "".join(classes).lower() or k in id_val for k in ["comment", "review", "danh-gia"]):
+                    text = div.get_text(separator="\n", strip=True)
+                    if text:
+                        comments_texts.append(text)
+            if comments_texts:
+                comments = "\n---\n".join(comments_texts[:3]) # Lấy 3 cái đầu
 
-        return None
+        return description, comments

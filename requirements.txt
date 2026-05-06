@@ -4,3 +4,6 @@ elasticsearch<9
 pymongo
 beautifulsoup4
 requests
+transformers==4.38.2
+torch
+sentencepiece
