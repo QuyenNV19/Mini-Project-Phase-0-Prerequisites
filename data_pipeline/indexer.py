@@ -10,6 +10,32 @@ if project_root not in sys.path:
 
 from database.connection import get_products_collection
 from config import settings
+from data_pipeline.embedding_model import get_embedding_model
+
+def create_index_if_not_exists(es):
+    """Tạo index với mapping chuẩn cho Hybrid Search nếu chưa tồn tại."""
+    if not es.indices.exists(index=settings.ES_INDEX):
+        mapping = {
+            "mappings": {
+                "properties": {
+                    "name": {"type": "text", "analyzer": "standard"},
+                    "description": {"type": "text"},
+                    "summary": {"type": "text"},
+                    "url": {"type": "keyword"},
+                    "price": {"type": "integer"},
+                    "rating": {"type": "float"},
+                    "sold": {"type": "integer"},
+                    "content_vector": {
+                        "type": "dense_vector",
+                        "dims": 384,
+                        "index": True,
+                        "similarity": "cosine"
+                    }
+                }
+            }
+        }
+        es.indices.create(index=settings.ES_INDEX, body=mapping)
+        print(f"Đã tạo index '{settings.ES_INDEX}' với mapping chuẩn.")
 
 def index_data():
     """
@@ -18,7 +44,13 @@ def index_data():
     """
     es = Elasticsearch([settings.ES_HOST])
     
-    # Ưu tiên đọc từ file JSON đã xử lý
+    # 1. Khởi tạo Mapping
+    create_index_if_not_exists(es)
+    
+    # 2. Khởi tạo Model Embedding
+    model = get_embedding_model()
+    
+    # 3. Đọc dữ liệu
     json_path = os.path.join(project_root, "data_pipeline", "data_processed.json")
     products = []
     
@@ -35,23 +67,35 @@ def index_data():
         print("Không có dữ liệu để index.")
         return
 
-    print(f"Đang chuẩn bị index {len(products)} sản phẩm vào Elasticsearch...")
+    print(f"Đang chuẩn bị tạo Vector và index {len(products)} sản phẩm...")
     
     actions = []
-    for product in products:
-        # Sử dụng URL làm ID duy nhất để tránh trùng lặp khi chạy lại nhiều lần
+    for i, product in enumerate(products):
         doc_id = product.get("url")
         
-        # Sao chép dữ liệu và loại bỏ _id của MongoDB nếu có
+        # Tạo chuỗi văn bản kết hợp name + summary để lấy ngữ nghĩa sâu
+        name = product.get("name", "")
+        summary = product.get("summary", "")
+        combined_text = f"{name}. {summary}"
+        
+        # Tạo Vector
+        vector = model.get_embedding(combined_text)
+        
         source_data = product.copy()
         if "_id" in source_data:
             source_data.pop("_id")
+        
+        # Lưu vector vào trường content_vector
+        source_data["content_vector"] = vector
             
         actions.append({
             "_index": settings.ES_INDEX,
             "_id": doc_id,
             "_source": source_data
         })
+        
+        if (i + 1) % 50 == 0:
+            print(f"Đã xử lý {i + 1}/{len(products)} sản phẩm...")
     
     try:
         success, failed = helpers.bulk(es, actions)
@@ -60,5 +104,5 @@ def index_data():
         print(f"Lỗi khi index dữ liệu vào Elasticsearch: {e}")
 
 if __name__ == "__main__":
-    print("--- ELASTICSEARCH INDEXER ---")
+    print("--- ELASTICSEARCH HYBRID INDEXER ---")
     index_data()
